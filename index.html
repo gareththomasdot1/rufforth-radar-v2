@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Rufforth East Glass Cockpit v2</title>
+    <title>Rufforth East Glass Cockpit v2.1</title>
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#00f2ff">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -250,7 +250,7 @@
 <div id="helpModal" class="modal">
     <div class="modal-content">
         <span class="modal-close" onclick="closeModal('helpModal')">&times;</span>
-        <h2>SYSTEM GUIDE</h2>
+        <h2>SYSTEM GUIDE <span id="help-version" style="font-size:0.7rem;color:#555;font-weight:normal;float:right;margin-top:4px;"></span></h2>
         <div class="help-item">
             <div class="help-icon">&#9881;</div>
             <div class="help-text"><h4>System Config</h4><p>Click the Cog icon to adjust Map Center, Radar Range, Filters, Watch List, and Notifications.</p></div>
@@ -462,6 +462,7 @@
 // ============================================================
 // CONSTANTS
 // ============================================================
+const VERSION = '2.1.0';
 const RUFF_EAST_REF = { lat: 53.9495, lon: -1.1790 };
 let CURRENT_REF = { ...RUFF_EAST_REF };
 const RUFF_ELEVATION_FT = 110;
@@ -1188,6 +1189,7 @@ if ('serviceWorker' in navigator) {
 // ============================================================
 // INIT
 // ============================================================
+document.getElementById('help-version').innerText = 'v' + VERSION;
 loadConfig();
 updateMapBounds();
 document.getElementById("label-range").innerText = `${CONFIG.range}NM AREA | MAX ${CONFIG.maxAlt}FT`;
