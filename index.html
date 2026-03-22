@@ -1021,7 +1021,8 @@ function renderUI() {
         }
 
         const regDisp = ac.reg.startsWith('G-') ? ac.reg.slice(2) : ac.reg;
-        const iconHtml = `<div class="ac-icon ${statusClass}">${svgHtml}</div><div class="icon-reg-label">${regDisp}</div>`;
+        const rotStyle = ac.track != null ? `style="transform:rotate(${ac.track}deg);transform-origin:center;"` : '';
+        const iconHtml = `<div class="ac-icon ${statusClass}" ${rotStyle}>${svgHtml}</div><div class="icon-reg-label">${regDisp}</div>`;
         const icon = L.divIcon({ className: 'custom-icon', html: iconHtml, iconSize: [24, 24], iconAnchor: [12, 12] });
 
         const altA = ac.vrate > 100 ? "↑" : ac.vrate < -100 ? "↓" : "→";
@@ -1037,12 +1038,17 @@ function renderUI() {
         });
         tbody.appendChild(tr);
 
-        if (ac.track !== undefined) {
+        if (ac.track != null) {
             const rads = ac.track * Math.PI / 180;
-            const len = 0.02;
-            const endLat = ac.lat + len * Math.cos(rads), endLon = ac.lon + len * Math.sin(rads);
+            const lenDeg = 0.015; // ~1 NM
+            const endLat = ac.lat + lenDeg * Math.cos(rads);
+            const endLon = ac.lon + lenDeg * Math.sin(rads) / Math.cos(ac.lat * Math.PI / 180);
+            const lineColor = statusClass === 'status-emergency' ? '#ff3333'
+                            : statusClass === 'status-amber'     ? '#ff9900'
+                            : statusClass === 'status-watch'     ? '#00f2ff'
+                            :                                      '#00cc44';
             [trafficLayerLocal, trafficLayerWide].forEach(layer =>
-                L.polyline([[ac.lat, ac.lon], [endLat, endLon]], { color: '#666', weight: 1, opacity: 0.8 }).addTo(layer)
+                L.polyline([[ac.lat, ac.lon], [endLat, endLon]], { color: lineColor, weight: 1.5, opacity: 0.7 }).addTo(layer)
             );
         }
 
