@@ -189,6 +189,25 @@
 
         .copyright-bar { background: #000; color: #444; font-size: 8px; text-align: center; padding: 2px 0; font-family: sans-serif; border-top: 1px solid #111; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+        /* Source status badges */
+        .src-badge {
+            font-family: monospace; font-size: 0.6rem; font-weight: bold;
+            padding: 2px 6px; border-radius: 2px; border: 1px solid #333;
+            color: #444; background: #0a0a0a; transition: color 0.4s, border-color 0.4s;
+            cursor: default; letter-spacing: 0.5px;
+        }
+        .src-badge.src-ok     { color: var(--airbus-green); border-color: var(--airbus-green); }
+        .src-badge.src-active { color: var(--airbus-cyan);  border-color: var(--airbus-cyan); animation: pulse 2s infinite; }
+        .src-badge.src-err    { color: var(--airbus-red);   border-color: var(--airbus-red); }
+        .src-badge.src-off    { color: #333; border-color: #222; }
+
+        /* Mode-S only rows */
+        .mode-s-row { color: var(--airbus-amber) !important; font-style: italic; }
+        .mode-s-row td:first-child::before { content: '⬡ '; font-size: 0.7rem; }
+
+        /* Pi URL input */
+        .pi-url-input { width: 100%; background: #000; color: var(--airbus-cyan); border: 1px solid #444; padding: 6px; font-family: monospace; font-size: 0.8rem; box-sizing: border-box; margin-top: 6px; }
+
         @keyframes blink { 50% { opacity: 0.5; } }
         @keyframes pulse { 50% { opacity: 0.7; } }
 
@@ -328,6 +347,16 @@
         </div>
 
         <div class="form-group">
+            <span class="form-label">LOCAL PI RECEIVER (dump1090 / readsb)</span>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px;">
+                <input type="checkbox" id="cfg-pi-enabled" style="accent-color:var(--airbus-cyan);width:16px;height:16px;">
+                <span style="color:#aaa;font-size:0.8rem;">Enable local Pi as primary source</span>
+            </label>
+            <input type="text" id="cfg-pi-url" class="pi-url-input" placeholder="http://192.168.1.1">
+            <span style="color:#555;font-size:0.7rem;display:block;margin-top:4px;">Tries /data/aircraft.json and /dump1090/data/aircraft.json</span>
+        </div>
+
+        <div class="form-group">
             <span class="form-label">PUSH NOTIFICATIONS</span>
             <button id="btn-notif" class="btn-notif" onclick="requestNotifPermission()">ENABLE NOTIFICATIONS</button>
         </div>
@@ -356,6 +385,10 @@
         </div>
 
         <div class="header-right">
+            <div id="src-indicators" style="display:flex;gap:4px;align-items:center;">
+                <span class="src-badge src-off" id="src-pi"  title="Local Pi (dump1090)">PI</span>
+                <span class="src-badge src-off" id="src-net" title="Network (adsb.lol)">NET</span>
+            </div>
             <div class="time-box">
                 <span class="time-lbl" id="status-lbl">REFRESHING IN:</span>
                 <span id="refresh-timer">60s</span>
@@ -432,6 +465,7 @@
 const RUFF_EAST_REF = { lat: 53.9495, lon: -1.1790 };
 let CURRENT_REF = { ...RUFF_EAST_REF };
 const RUFF_ELEVATION_FT = 110;
+const SRC_STATUS = { pi: 'off', net: 'off' };
 
 const SVG_PLANE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="2" x2="12" y2="22"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="8" y1="19" x2="16" y2="19"/></svg>';
 const SVG_HELI  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="6" x2="12" y2="22"/><line x1="6" y1="6" x2="18" y2="14"/><line x1="6" y1="14" x2="18" y2="6"/></svg>';
@@ -448,7 +482,7 @@ const MILE_TO_M = 1609.34;
 // ============================================================
 // CONFIG
 // ============================================================
-let CONFIG = { watchList: DEFAULT_WATCH, range: 30, maxAlt: 3000, mapVis: 100, centerLat: null, centerLon: null, watchType: 'GYRO' };
+let CONFIG = { watchList: DEFAULT_WATCH, range: 30, maxAlt: 3000, mapVis: 100, centerLat: null, centerLon: null, watchType: 'GYRO', piEnabled: false, piUrl: '' };
 try {
     const stored = localStorage.getItem('rufforth_config');
     if (stored) {
@@ -553,8 +587,11 @@ function loadConfig() {
     document.getElementById("cfg-lat").value = CONFIG.centerLat || "";
     document.getElementById("cfg-lon").value = CONFIG.centerLon || "";
     document.getElementById("cfg-watch-type").value = CONFIG.watchType || 'GYRO';
+    document.getElementById("cfg-pi-enabled").checked = CONFIG.piEnabled || false;
+    document.getElementById("cfg-pi-url").value = CONFIG.piUrl || '';
     updateRangeVal(CONFIG.range); updateAltVal(CONFIG.maxAlt); updateVisVal(CONFIG.mapVis || 100);
     updateNotifButton();
+    updateSrcBadges();
 }
 
 function updateRangeVal(v) { document.getElementById("val-range").innerText = v + " NM"; }
@@ -582,6 +619,8 @@ function saveConfig() {
     if (!isNaN(inLat) && !isNaN(inLon)) { CONFIG.centerLat = inLat; CONFIG.centerLon = inLon; CURRENT_REF.lat = inLat; CURRENT_REF.lon = inLon; }
     else { CONFIG.centerLat = null; CONFIG.centerLon = null; CURRENT_REF = { ...RUFF_EAST_REF }; }
 
+    CONFIG.piEnabled = document.getElementById("cfg-pi-enabled").checked;
+    CONFIG.piUrl = document.getElementById("cfg-pi-url").value.trim().replace(/\/$/, '');
     CONFIG.watchList = newWatchList; CONFIG.range = range; CONFIG.maxAlt = alt; CONFIG.mapVis = vis; CONFIG.watchType = wType;
 
     try { localStorage.setItem('rufforth_config', JSON.stringify(CONFIG)); } catch(e) {}
@@ -621,11 +660,61 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 }
 
 // ============================================================
-// TRAFFIC FETCH (proxy-first with fallbacks)
+// SOURCE STATUS BADGES
 // ============================================================
-async function updateTraffic() {
-    refreshCountdown = refreshMax;
+function updateSrcBadges() {
+    const map = { pi: 'src-pi', net: 'src-net' };
+    Object.entries(map).forEach(([key, id]) => {
+        const el = document.getElementById(id);
+        el.className = 'src-badge src-' + SRC_STATUS[key];
+    });
+    document.getElementById('src-pi').style.display = CONFIG.piEnabled ? '' : 'none';
+}
 
+// ============================================================
+// LOCAL PI FETCH (dump1090 / readsb)
+// ============================================================
+const PI_PATHS = ['/data/aircraft.json', '/dump1090/data/aircraft.json', '/skyaware/data/aircraft.json', '/tar1090/data/aircraft.json'];
+
+async function fetchFromPi() {
+    const base = CONFIG.piUrl;
+    for (const path of PI_PATHS) {
+        try {
+            const res = await fetch(base + path, { cache: 'no-store', signal: AbortSignal.timeout(3000) });
+            if (!res.ok) continue;
+            const d = await res.json();
+            const raw = d.aircraft || d.ac || [];
+            SRC_STATUS.pi = 'ok';
+            return normalisePiData(raw);
+        } catch(e) {}
+    }
+    SRC_STATUS.pi = 'err';
+    return null;
+}
+
+function normalisePiData(aircraft) {
+    return aircraft.map(a => ({
+        hex:      a.hex,
+        r:        a.r || (a.flight || '').trim() || a.hex,
+        t:        a.t || '',
+        alt_baro: a.alt_baro ?? a.altitude ?? null,
+        gs:       a.gs ?? null,
+        track:    a.track ?? null,
+        lat:      a.lat ?? null,
+        lon:      a.lon ?? null,
+        baro_rate: a.baro_rate ?? null,
+        squawk:   a.squawk ?? null,
+        emergency: a.emergency ?? null,
+        category: a.category ?? null,
+        _source:  'pi',
+        _adsbtype: a.type  // 'adsb_icao', 'mlat', 'mode_s', etc.
+    }));
+}
+
+// ============================================================
+// NETWORK FETCH (adsb.lol via proxy + fallbacks)
+// ============================================================
+async function fetchFromNetwork() {
     const cleanUrl = `https://api.adsb.lol/v2/lat/${CURRENT_REF.lat}/lon/${CURRENT_REF.lon}/dist/${CONFIG.range}`;
     const strategies = [
         { url: `/api/adsb/v2/lat/${CURRENT_REF.lat}/lon/${CURRENT_REF.lon}/dist/${CONFIG.range}`, type: 'direct', name: 'Proxy' },
@@ -633,7 +722,6 @@ async function updateTraffic() {
         { url: `https://corsproxy.io/?${encodeURIComponent(cleanUrl)}`,                            type: 'direct', name: 'CorsProxy' },
         { url: `https://api.allorigins.win/get?url=${encodeURIComponent(cleanUrl)}&random=${Date.now()}`, type: 'json-wrap', name: 'AllOrigins' }
     ];
-
     if (window.location.hostname.includes("github.io")) strategies.shift();
 
     for (const strat of strategies) {
@@ -644,21 +732,65 @@ async function updateTraffic() {
                 if (!res.ok || (ct && !ct.includes("json"))) continue;
             }
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            let data = strat.type === 'json-wrap' ? JSON.parse((await res.json()).contents) : await res.json();
-            if (data && (data.ac || Array.isArray(data.ac))) { processTrafficData(data, strat.name); return; }
+            const data = strat.type === 'json-wrap' ? JSON.parse((await res.json()).contents) : await res.json();
+            if (data && Array.isArray(data.ac)) {
+                SRC_STATUS.net = 'ok';
+                return data.ac.map(a => ({ ...a, _source: 'net' }));
+            }
         } catch(e) {}
     }
-
-    const lbl = document.getElementById('status-lbl');
-    lbl.innerText = "LINK DOWN"; lbl.classList.add('error');
+    SRC_STATUS.net = 'err';
+    return null;
 }
 
-function processTrafficData(data, source) {
-    const lbl = document.getElementById('status-lbl');
-    lbl.classList.remove('error'); lbl.classList.add('flash');
-    setTimeout(() => lbl.classList.remove('flash'), 1000);
-    latestTrafficData = data.ac || [];
-    renderUI();
+// ============================================================
+// MULTI-SOURCE TRAFFIC FETCH + MERGE
+// ============================================================
+async function updateTraffic() {
+    refreshCountdown = refreshMax;
+
+    // Mark active sources while fetching
+    if (CONFIG.piEnabled) SRC_STATUS.pi = 'active';
+    SRC_STATUS.net = 'active';
+    updateSrcBadges();
+
+    // Launch sources in parallel
+    const promises = [];
+    if (CONFIG.piEnabled && CONFIG.piUrl) promises.push(fetchFromPi().then(d => ({ src: 'pi', data: d })));
+    promises.push(fetchFromNetwork().then(d => ({ src: 'net', data: d })));
+
+    const results = await Promise.allSettled(promises);
+
+    // Merge by hex — Pi takes priority (fresher/direct), supplement with net
+    const byHex = new Map();
+    results.forEach(r => {
+        if (r.status !== 'fulfilled' || !r.value?.data) return;
+        r.value.data.forEach(ac => {
+            const hex = (ac.hex || '').toLowerCase();
+            if (!hex) return;
+            const existing = byHex.get(hex);
+            // Prefer Pi data; for network data prefer entry with position
+            if (!existing || r.value.src === 'pi' || (!existing.lat && ac.lat)) {
+                byHex.set(hex, ac);
+            }
+        });
+    });
+
+    updateSrcBadges();
+
+    const merged = Array.from(byHex.values());
+    const anySuccess = results.some(r => r.status === 'fulfilled' && r.value?.data);
+
+    if (anySuccess) {
+        const lbl = document.getElementById('status-lbl');
+        lbl.classList.remove('error'); lbl.classList.add('flash');
+        setTimeout(() => lbl.classList.remove('flash'), 1000);
+        latestTrafficData = merged;
+        renderUI();
+    } else {
+        const lbl = document.getElementById('status-lbl');
+        lbl.innerText = "LINK DOWN"; lbl.classList.add('error');
+    }
 }
 
 // ============================================================
@@ -822,19 +954,31 @@ function renderUI() {
         return (ac.alt_baro === undefined || ac.alt_baro <= CONFIG.maxAlt);
     });
 
-    const processed = filtered.map(ac => {
+    // Split: aircraft with position vs Mode-S-only (no lat/lon)
+    const withPos = [], modeS = [];
+    filtered.forEach(ac => {
         const reg = (ac.r || ac.hex || "UNK").toUpperCase();
-        const d = calculateDistance(CURRENT_REF.lat, CURRENT_REF.lon, ac.lat, ac.lon);
-        return {
-            reg, alt: ac.alt_baro || 0,
-            spd: Math.round((ac.gs || 0) * KT_TO_MPH),
-            dist: d, vrate: ac.baro_rate || 0,
-            lat: ac.lat, lon: ac.lon,
-            track: ac.track, cat: ac.category,
-            type: ac.t || "", squawk: ac.squawk, emergency: ac.emergency
-        };
-    }).sort((a, b) => a.dist - b.dist);
+        if (ac.lat != null && ac.lon != null) {
+            const d = calculateDistance(CURRENT_REF.lat, CURRENT_REF.lon, ac.lat, ac.lon);
+            withPos.push({
+                reg, alt: ac.alt_baro || 0,
+                spd: Math.round((ac.gs || 0) * KT_TO_MPH),
+                dist: d, vrate: ac.baro_rate || 0,
+                lat: ac.lat, lon: ac.lon,
+                track: ac.track, cat: ac.category,
+                type: ac.t || "", squawk: ac.squawk, emergency: ac.emergency,
+                adsbtype: ac._adsbtype || ''
+            });
+        } else {
+            modeS.push({
+                reg, alt: ac.alt_baro || 0,
+                squawk: ac.squawk, type: ac.t || "",
+                adsbtype: ac._adsbtype || 'mode_s'
+            });
+        }
+    });
 
+    const processed = withPos.sort((a, b) => a.dist - b.dist);
     checkConflicts(processed);
 
     processed.forEach(ac => {
@@ -922,6 +1066,23 @@ function renderUI() {
     // Clear notifWatchSet for aircraft no longer present
     const currentRegs = new Set(processed.map(a => a.reg));
     notifWatchSet.forEach(k => { if (!currentRegs.has(k.replace(/7[567]00$/, ''))) notifWatchSet.delete(k); });
+
+    // Mode-S only — no position, show in sidebar as amber warning
+    if (modeS.length > 0) {
+        const divider = document.createElement('tr');
+        divider.innerHTML = `<td colspan="4" style="color:#444;font-size:0.65rem;padding:4px;border-top:1px solid #333;letter-spacing:1px;">MODE-S ONLY — NO POSITION</td>`;
+        tbody.appendChild(divider);
+
+        modeS.forEach(ac => {
+            const regDisp = ac.reg.startsWith('G-') ? ac.reg.slice(2) : ac.reg;
+            const isWatch = CONFIG.watchList.includes(ac.reg);
+            const tr = document.createElement('tr');
+            tr.className = 'mode-s-row';
+            if (isWatch) tr.style.color = 'var(--airbus-amber)';
+            tr.innerHTML = `<td>${regDisp}</td><td>${ac.alt || '--'}</td><td>--</td><td>NO POS</td>`;
+            tbody.appendChild(tr);
+        });
+    }
 }
 
 // ============================================================
@@ -1026,6 +1187,7 @@ updateMapBounds();
 document.getElementById("label-range").innerText = `${CONFIG.range}NM AREA | MAX ${CONFIG.maxAlt}FT`;
 drawRings();
 updateNotifButton();
+updateSrcBadges();
 
 trafficInterval = setInterval(updateTraffic, 60000);
 setInterval(fetchWeather, 300000);
