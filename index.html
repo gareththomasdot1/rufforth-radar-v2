@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Rufforth East Glass Cockpit v2</title>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#00f2ff">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        :root {
+            --airbus-cyan: #00f2ff;
+            --airbus-green: #00ff00;
+            --airbus-magenta: #ff00ff;
+            --airbus-amber: #ff9900;
+            --airbus-red: #ff3333;
+            --bg-dark: #0b0e14;
+            --panel-bg: rgba(26, 31, 38, 0.95);
+            --btn-active: #343d4a;
+            --sidebar-bg: #15191f;
+        }
+
+        body, html {
+            margin: 0; padding: 0; background: var(--bg-dark); color: #e0e0e0;
+            font-family: 'Segoe UI', sans-serif;
+            height: 100%; height: 100dvh; width: 100vw; overflow: hidden;
+        }
+
+        .dashboard { display: flex; flex-direction: column; height: 100%; width: 100%; transition: margin-right 0.3s; }
+
+        #rotate-msg {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; z-index: 9999; flex-direction: column;
+            justify-content: center; align-items: center; text-align: center;
+        }
+        #rotate-msg h1 { color: var(--airbus-cyan); font-size: 2rem; margin-bottom: 20px; }
+        #rotate-msg p { color: #888; font-size: 1.2rem; }
+        #rotate-msg .icon { font-size: 4rem; animation: spin 2s infinite linear; }
+
+        @media (orientation: portrait) {
+            #rotate-msg { display: flex; }
+            .dashboard { display: none; }
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 25% { transform: rotate(-90deg); } 100% { transform: rotate(-90deg); } }
+
+        header {
+            height: 45px; background: #111; border-bottom: 2px solid #333;
+            display: flex; justify-content: space-between; align-items: center; padding: 0 15px;
+            flex-shrink: 0;
+        }
+
+        .controls-container { display: flex; gap: 15px; align-items: center; }
+        .control-group { display: flex; background: #000; border: 1px solid #444; border-radius: 4px; padding: 2px; gap: 2px; }
+        .lbl-refresh { font-size: 0.7rem; color: #888; font-weight: bold; margin-right: 5px; }
+
+        .mode-btn {
+            background: transparent; color: #666; border: none; padding: 4px 10px;
+            font-size: 0.7rem; font-weight: bold; cursor: pointer; border-radius: 3px;
+            border: 1px solid transparent; min-width: 35px;
+        }
+        .mode-btn:hover { background: #222; }
+        .mode-btn.active { background: var(--btn-active); color: var(--airbus-cyan); border: 1px solid #444; }
+
+        .header-right { display: flex; align-items: center; gap: 10px; }
+
+        .time-box { font-family: monospace; display: flex; align-items: center; gap: 8px; }
+        .time-lbl { color: #555; font-size: 0.65rem; font-weight: bold; letter-spacing: 0.5px; transition: color 0.5s; }
+        .time-lbl.flash { color: var(--airbus-cyan); text-shadow: 0 0 5px var(--airbus-cyan); }
+        .time-lbl.error { color: var(--airbus-red); }
+        #refresh-timer { color: #888; font-size: 0.8rem; min-width: 25px; text-align: right; }
+        #zulu-clock { color: var(--airbus-green); font-size: 1rem; }
+
+        .hdr-btn {
+            background: transparent; border: none; color: #666; cursor: pointer; font-size: 1.1rem;
+            transition: color 0.3s; padding: 0 5px;
+        }
+        .hdr-btn:hover { color: var(--airbus-cyan); }
+
+        /* Sidebar */
+        .sidebar {
+            height: 100%; width: 0; position: fixed; z-index: 2000; top: 0; right: 0;
+            background-color: var(--sidebar-bg); overflow-x: hidden; overflow-y: auto;
+            transition: 0.3s; border-left: 1px solid #444; padding-top: 60px;
+            box-shadow: -5px 0 15px rgba(0,0,0,0.5);
+        }
+        .sidebar-content { padding: 20px; width: 100%; box-sizing: border-box; padding-bottom: 100px; }
+        .sidebar h2 { color: var(--airbus-cyan); font-size: 1.2rem; margin-top: 0; border-bottom: 1px solid #444; padding-bottom: 10px; }
+        .closebtn { position: absolute; top: 10px; right: 20px; font-size: 2rem; color: #888; text-decoration: none; }
+        .closebtn:hover { color: #fff; }
+
+        /* Modal base */
+        .modal { display: none; position: fixed; z-index: 3000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.8); backdrop-filter: blur(2px); }
+        .modal-content { background-color: #15191f; margin: 5% auto; padding: 25px; border: 1px solid var(--airbus-cyan); width: 85%; max-width: 520px; border-radius: 6px; box-shadow: 0 0 20px rgba(0,242,255,0.2); max-height: 85vh; overflow-y: auto; }
+        .modal-close { color: #888; float: right; font-size: 28px; font-weight: bold; cursor: pointer; line-height: 20px; }
+        .modal-close:hover { color: #fff; }
+        .modal h2 { margin-top: 0; color: var(--airbus-cyan); border-bottom: 1px solid #444; padding-bottom: 10px; }
+
+        /* Help items */
+        .help-item { margin-bottom: 15px; display: flex; align-items: flex-start; gap: 15px; }
+        .help-icon { font-size: 1.5rem; min-width: 30px; text-align: center; color: var(--airbus-green); }
+        .help-text h4 { margin: 0 0 5px 0; color: #fff; }
+        .help-text p { margin: 0; font-size: 0.85rem; color: #aaa; line-height: 1.4; }
+
+        /* Flight log */
+        #log-date-nav { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; }
+        #log-date-nav button { background: #222; border: 1px solid #444; color: var(--airbus-cyan); padding: 4px 10px; cursor: pointer; font-size: 0.8rem; }
+        #log-date-nav button:hover { background: #333; }
+        #log-date-label { color: var(--airbus-cyan); font-family: monospace; font-size: 0.9rem; min-width: 100px; text-align: center; }
+        #log-entries { font-family: monospace; font-size: 0.78rem; color: #aaa; }
+        .log-entry { padding: 4px 0; border-bottom: 1px solid #222; display: flex; justify-content: space-between; }
+        .log-entry .le-reg { color: var(--airbus-green); font-weight: bold; }
+        .log-entry .le-time { color: #666; }
+        .log-entry .le-alt { color: var(--airbus-cyan); }
+        #log-empty { color: #555; text-align: center; padding: 20px; font-size: 0.85rem; }
+
+        /* METAR modal */
+        #metar-raw-text { font-family: monospace; font-size: 0.85rem; color: var(--airbus-green); white-space: pre-wrap; word-break: break-all; background: #000; padding: 12px; border: 1px solid #444; margin-top: 10px; min-height: 60px; }
+        #metar-age { color: #666; font-size: 0.75rem; margin-top: 6px; }
+
+        /* Photo in popup */
+        .pop-photo { width: 100%; max-height: 80px; object-fit: cover; border-radius: 3px; margin-bottom: 6px; border: 1px solid #444; }
+        .pop-photo-credit { font-size: 0.65rem; color: #555; text-align: right; margin-top: -4px; margin-bottom: 4px; }
+
+        /* Conflict banner */
+        #conflict-banner {
+            display: none; position: fixed; top: 50px; left: 50%; transform: translateX(-50%);
+            z-index: 4000; background: var(--airbus-red); color: #fff; padding: 6px 18px;
+            font-size: 0.85rem; font-weight: bold; border-radius: 3px;
+            animation: blink 0.5s infinite; letter-spacing: 1px;
+        }
+
+        /* Form elements */
+        .form-group { margin-bottom: 20px; }
+        .form-label { display: block; color: #aaa; font-size: 0.8rem; margin-bottom: 5px; }
+        textarea { width: 100%; height: 120px; background: #000; color: var(--airbus-green); border: 1px solid #444; padding: 10px; font-family: monospace; font-size: 0.8rem; resize: none; box-sizing: border-box; }
+        input[type="range"] { width: 100%; accent-color: var(--airbus-cyan); cursor: pointer; }
+        .coord-input { width: 48%; background: #000; color: var(--airbus-green); border: 1px solid #444; padding: 5px; font-family: monospace; }
+        .coord-container { display: flex; justify-content: space-between; }
+        .range-val { float: right; color: var(--airbus-cyan); font-weight: bold; font-size: 0.9rem; }
+        select { width: 100%; background: #000; color: var(--airbus-cyan); border: 1px solid #444; padding: 8px; font-family: monospace; font-size: 0.9rem; cursor: pointer; margin-top: 5px; }
+        .btn-save { width: 100%; padding: 12px; background: var(--btn-active); color: var(--airbus-cyan); border: 1px solid var(--airbus-cyan); cursor: pointer; font-weight: bold; margin-top: 20px; transition: background 0.2s; font-size: 0.9rem; }
+        .btn-save:hover { background: #445; }
+        .btn-save:active { transform: scale(0.98); }
+        .btn-notif { width: 100%; padding: 8px; background: #111; color: #888; border: 1px solid #444; cursor: pointer; font-size: 0.8rem; margin-top: 8px; }
+        .btn-notif.granted { color: var(--airbus-green); border-color: var(--airbus-green); }
+        .btn-notif.denied { color: var(--airbus-red); border-color: var(--airbus-red); cursor: not-allowed; }
+
+        /* Layout */
+        .main-view { display: flex; flex: 1 1 auto; min-height: 0; gap: 5px; padding: 5px; overflow: hidden; width: 100%; }
+
+        .leaflet-tile-pane { transition: opacity 0.1s linear; }
+
+        @media (orientation: landscape) {
+            .radar-box.local { flex: 1.5; }
+            .radar-box.wide { flex: 1.1; }
+            .status-panel { flex: 0.8; max-width: 320px; }
+        }
+
+        .radar-box { background: black; border: 1px solid #444; position: relative; border-radius: 4px; display: flex; flex-direction: column; }
+        #map-local, #map-wide { flex: 1; background: black !important; width: 100%; }
+
+        .label {
+            position: absolute; top: 5px; left: 5px; z-index: 1000;
+            background: rgba(0,0,0,0.8); color: var(--airbus-cyan);
+            padding: 2px 5px; font-size: 0.6rem; border: 1px solid var(--airbus-cyan);
+        }
+
+        .status-panel { background: var(--panel-bg); border: 1px solid #444; overflow-y: auto; display: flex; flex-direction: column; }
+        table { width: 100%; border-collapse: collapse; font-family: monospace; font-size: 0.75rem; }
+        th { color: var(--airbus-cyan); border-bottom: 1px solid #444; text-align: left; padding: 8px 4px; position: sticky; top: 0; background: #1a1f26; z-index: 10; }
+        td { padding: 8px 4px; border-bottom: 1px solid #222; cursor: pointer; }
+        td:hover { background: rgba(255,255,255,0.1); }
+
+        footer {
+            height: 50px; background: #000; border-top: 2px solid var(--airbus-cyan);
+            display: grid; grid-template-columns: repeat(8, 1fr); align-items: center;
+            flex-shrink: 0; cursor: pointer;
+        }
+        footer:hover { border-top-color: #44aaff; }
+        footer::after { content: 'TAP FOR METAR'; position: absolute; bottom: 52px; right: 8px; font-size: 0.55rem; color: #444; pointer-events: none; }
+
+        .met-item { text-align: center; border-right: 1px solid #222; height: 100%; display: flex; flex-direction: column; justify-content: center; }
+        .met-lbl { color: #888; font-size: 0.55rem; margin-bottom: -1px; }
+        .val { display: block; color: var(--airbus-green); font-size: 0.9rem; font-weight: bold; line-height: 1.1; transition: color 0.3s; }
+        .unit { font-size: 0.6rem; color: #666; text-transform: uppercase; margin-top: -1px; }
+
+        .val.warn-amber { color: var(--airbus-amber) !important; animation: pulse 2s infinite; }
+        .val.warn-red { color: var(--airbus-red) !important; animation: blink 1s infinite; }
+
+        .copyright-bar { background: #000; color: #444; font-size: 8px; text-align: center; padding: 2px 0; font-family: sans-serif; border-top: 1px solid #111; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        @keyframes blink { 50% { opacity: 0.5; } }
+        @keyframes pulse { 50% { opacity: 0.7; } }
+
+        .rwy-label { color: var(--airbus-cyan); font-family: monospace; font-size: 10px; background: black; border: 1px solid var(--airbus-cyan); display: flex; align-items: center; justify-content: center; border-radius: 2px; }
+
+        .icon-symbol { width: 24px; height: 24px; display: block; filter: drop-shadow(0px 0px 2px black); }
+        .icon-reg-label { font-family: monospace; font-size: 10px; color: var(--airbus-green); background: rgba(0,0,0,0.8); padding: 1px 3px; border-radius: 2px; white-space: nowrap; transform: translate(-50%, -42px); border: 1px solid #444; z-index: 100; }
+
+        .status-emergency path, .status-emergency line, .status-emergency circle { stroke: var(--airbus-red); animation: blink 0.5s infinite; }
+        .status-emergency + .icon-reg-label { color: var(--airbus-red); border-color: var(--airbus-red); }
+        .status-normal path, .status-normal line, .status-normal circle { stroke: var(--airbus-green); }
+        .status-watch path, .status-watch line, .status-watch circle { stroke: var(--airbus-cyan); }
+        .status-watch + .icon-reg-label { color: var(--airbus-cyan); border-color: var(--airbus-cyan); }
+        .status-amber path, .status-amber line, .status-amber circle { stroke: var(--airbus-amber); animation: pulse 1s infinite; }
+        .status-amber + .icon-reg-label { color: var(--airbus-amber); border-color: var(--airbus-amber); }
+
+        .leaflet-popup-content-wrapper { background: rgba(10,10,10,0.95); color: #ccc; border: 1px solid #444; border-radius: 4px; padding: 0; }
+        .leaflet-popup-tip { background: #333; }
+        .leaflet-popup-content { margin: 10px; font-family: monospace; font-size: 12px; line-height: 1.4; min-width: 180px; }
+        .pop-row { display: flex; justify-content: space-between; border-bottom: 1px solid #333; padding: 2px 0; }
+        .pop-lbl { color: #888; }
+        .pop-val { color: var(--airbus-cyan); font-weight: bold; text-align: right; }
+        .pop-header { color: var(--airbus-green); font-size: 14px; font-weight: bold; border-bottom: 1px solid var(--airbus-green); padding-bottom: 3px; margin-bottom: 5px; text-align: center; }
+        .pop-photo-wrap { margin-bottom: 6px; text-align: center; }
+        .pop-photo { max-width: 100%; max-height: 90px; object-fit: cover; border: 1px solid #444; border-radius: 2px; }
+        .pop-photo-credit { font-size: 0.6rem; color: #555; text-align: right; }
+    </style>
+</head>
+<body>
+
+<div id="rotate-msg">
+    <div class="icon">&#8635;</div>
+    <h1>ROTATE DEVICE</h1>
+    <p>Please use landscape mode<br>for optimal viewing.</p>
+</div>
+
+<div id="conflict-banner">&#9888; TRAFFIC CONFLICT DETECTED</div>
+
+<!-- Help Modal -->
+<div id="helpModal" class="modal">
+    <div class="modal-content">
+        <span class="modal-close" onclick="closeModal('helpModal')">&times;</span>
+        <h2>SYSTEM GUIDE</h2>
+        <div class="help-item">
+            <div class="help-icon">&#9881;</div>
+            <div class="help-text"><h4>System Config</h4><p>Click the Cog icon to adjust Map Center, Radar Range, Filters, Watch List, and Notifications.</p></div>
+        </div>
+        <div class="help-item">
+            <div class="help-icon">&#9992;</div>
+            <div class="help-text"><h4>Traffic Details</h4><p>Click any aircraft in the list or on the map to see extended details including aircraft photo (where available).</p></div>
+        </div>
+        <div class="help-item">
+            <div class="help-icon">&#127760;</div>
+            <div class="help-text"><h4>Dual Map View</h4><p><strong>Left:</strong> Local Circuit View (Rufforth East 23RH/05LH).<br><strong>Right:</strong> Wide Area Radar.</p></div>
+        </div>
+        <div class="help-item">
+            <div class="help-icon">&#9729;</div>
+            <div class="help-text"><h4>Weather / METAR</h4><p>The bottom bar shows live weather. Tap the footer to see the raw METAR string from Leeds Bradford.</p></div>
+        </div>
+        <div class="help-item">
+            <div class="help-icon">&#128218;</div>
+            <div class="help-text"><h4>Flight Log</h4><p>Click the log icon to review aircraft sightings by date. Automatically recorded each session.</p></div>
+        </div>
+        <div class="help-item">
+            <div class="help-icon">&#128276;</div>
+            <div class="help-text"><h4>Squawk Alerts</h4><p>7700 = Emergency (red blink), 7600 = Radio Failure (amber), 7500 = Hijack (red, urgent).</p></div>
+        </div>
+        <div class="help-item">
+            <div class="help-icon">&#9888;</div>
+            <div class="help-text"><h4>Traffic Conflict</h4><p>Banner alert fires when two aircraft are within 1 NM horizontally and 500 ft vertically.</p></div>
+        </div>
+    </div>
+</div>
+
+<!-- METAR Modal -->
+<div id="metarModal" class="modal">
+    <div class="modal-content">
+        <span class="modal-close" onclick="closeModal('metarModal')">&times;</span>
+        <h2>METAR — EGNM (Leeds Bradford)</h2>
+        <div id="metar-raw-text">Fetching…</div>
+        <div id="metar-age"></div>
+    </div>
+</div>
+
+<!-- Flight Log Modal -->
+<div id="logModal" class="modal">
+    <div class="modal-content">
+        <span class="modal-close" onclick="closeModal('logModal')">&times;</span>
+        <h2>FLIGHT LOG</h2>
+        <div id="log-date-nav">
+            <button onclick="logNav(-1)">&#9664;</button>
+            <span id="log-date-label">TODAY</span>
+            <button onclick="logNav(+1)">&#9654;</button>
+        </div>
+        <div id="log-entries"></div>
+    </div>
+</div>
+
+<!-- Config Sidebar -->
+<div id="mySidebar" class="sidebar">
+    <a href="javascript:void(0)" class="closebtn" onclick="closeNav()">&times;</a>
+    <div class="sidebar-content">
+        <h2>SYSTEM CONFIG</h2>
+
+        <div class="form-group">
+            <span class="form-label">MAP CENTER (Leave empty for default)</span>
+            <div class="coord-container">
+                <input type="number" id="cfg-lat" class="coord-input" step="0.0001" placeholder="Lat (53.95)">
+                <input type="number" id="cfg-lon" class="coord-input" step="0.0001" placeholder="Lon (-1.18)">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <span class="form-label">WATCH LIST (Comma Separated)</span>
+            <textarea id="cfg-watchlist"></textarea>
+            <span class="form-label" style="margin-top:10px;">DISPLAY WATCH LIST AS:</span>
+            <select id="cfg-watch-type">
+                <option value="GYRO">GYROCOPTERS</option>
+                <option value="HELI">HELICOPTERS</option>
+                <option value="FIXED">FIXED WING</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <span class="form-label">RADAR RANGE <span id="val-range" class="range-val">30 NM</span></span>
+            <input type="range" id="cfg-range" min="10" max="100" step="5" value="30" oninput="updateRangeVal(this.value)">
+        </div>
+
+        <div class="form-group">
+            <span class="form-label">MAX ALTITUDE FILTER <span id="val-alt" class="range-val">3000 FT</span></span>
+            <input type="range" id="cfg-alt" min="1000" max="20000" step="500" value="3000" oninput="updateAltVal(this.value)">
+        </div>
+
+        <div class="form-group">
+            <span class="form-label">MAP VISIBILITY <span id="val-vis" class="range-val">100%</span></span>
+            <input type="range" id="cfg-vis" min="20" max="100" step="10" value="100" oninput="updateVisVal(this.value)">
+        </div>
+
+        <div class="form-group">
+            <span class="form-label">PUSH NOTIFICATIONS</span>
+            <button id="btn-notif" class="btn-notif" onclick="requestNotifPermission()">ENABLE NOTIFICATIONS</button>
+        </div>
+
+        <button id="btn-save" class="btn-save" onclick="saveConfig()">SAVE &amp; APPLY</button>
+    </div>
+</div>
+
+<div id="main" class="dashboard">
+    <header>
+        <div class="controls-container">
+            <div class="control-group group-source">
+                <button id="btn-ninja" class="mode-btn" onclick="setMode('NINJA')">NINJA</button>
+                <button id="btn-all" class="mode-btn active" onclick="setMode('ALL')">ALL</button>
+            </div>
+
+            <div style="display:flex; align-items:center;">
+                <span class="lbl-refresh">REFRESH:</span>
+                <div class="control-group group-rate">
+                    <button id="btn-15s" class="mode-btn" onclick="setRate(15)">15s</button>
+                    <button id="btn-30s" class="mode-btn" onclick="setRate(30)">30s</button>
+                    <button id="btn-60s" class="mode-btn active" onclick="setRate(60)">60s</button>
+                    <button id="btn-90s" class="mode-btn" onclick="setRate(90)">90s</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="header-right">
+            <div class="time-box">
+                <span class="time-lbl" id="status-lbl">REFRESHING IN:</span>
+                <span id="refresh-timer">60s</span>
+                <span id="zulu-clock">00:00:00Z</span>
+            </div>
+            <button class="hdr-btn" title="Flight Log" onclick="openLog()">&#128218;</button>
+            <button class="hdr-btn" title="Help" onclick="openModal('helpModal')">?</button>
+            <button class="hdr-btn" title="Config" onclick="openNav()">&#9881;</button>
+        </div>
+    </header>
+
+    <div class="main-view">
+        <div class="radar-box local"><div class="label" id="label-local">RUFF EAST CCT</div><div id="map-local"></div></div>
+        <div class="radar-box wide"><div class="label" id="label-range">30NM AREA | MAX 3000FT</div><div id="map-wide"></div></div>
+        <div class="status-panel">
+            <table>
+                <thead><tr><th>REG</th><th>ALT</th><th>MPH</th><th>DIST</th></tr></thead>
+                <tbody id="traffic-rows"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <footer id="footer-bar" onclick="openMetar()">
+        <div class="met-item">
+            <div class="met-lbl">WIND</div>
+            <span id="wind-dir" class="val">--</span>
+            <span class="unit" id="cardinal">---</span>
+        </div>
+        <div class="met-item">
+            <div class="met-lbl">SPD/GST</div>
+            <span id="wind-spd" class="val">--</span>
+            <span class="unit">MPH</span>
+        </div>
+        <div class="met-item">
+            <div class="met-lbl">RWY</div>
+            <span id="rwy" class="val">--</span>
+            <span class="unit">SUGG.</span>
+        </div>
+        <div class="met-item">
+            <div class="met-lbl">X-WIND</div>
+            <span id="x-wind" class="val">--</span>
+            <span class="unit">MPH</span>
+        </div>
+        <div class="met-item">
+            <div class="met-lbl">VIS</div>
+            <span id="met-vis" class="val">--</span>
+            <span class="unit">KM</span>
+        </div>
+        <div class="met-item">
+            <div class="met-lbl">TEMP</div>
+            <span id="met-temp" class="val">--</span>
+            <span class="unit">°C</span>
+        </div>
+        <div class="met-item">
+            <div class="met-lbl">DEWPT</div>
+            <span id="met-dp" class="val">--</span>
+            <span class="unit">°C</span>
+        </div>
+        <div class="met-item" style="border:none">
+            <div class="met-lbl">PALT</div>
+            <span id="met-palt" class="val">--</span>
+            <span class="unit">FT</span>
+        </div>
+    </footer>
+
+    <div class="copyright-bar">&copy; Gareth Thomas. Not for navigation or safety purposes. ADS-B: adsb.lol | Weather: open-meteo | METAR: aviationweather.gov</div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ============================================================
+// CONSTANTS
+// ============================================================
+const RUFF_EAST_REF = { lat: 53.9495, lon: -1.1790 };
+let CURRENT_REF = { ...RUFF_EAST_REF };
+const RUFF_ELEVATION_FT = 110;
+
+const SVG_PLANE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="2" x2="12" y2="22"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="8" y1="19" x2="16" y2="19"/></svg>';
+const SVG_HELI  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="6" x2="12" y2="22"/><line x1="6" y1="6" x2="18" y2="14"/><line x1="6" y1="14" x2="18" y2="6"/></svg>';
+const SVG_GYRO  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="4" x2="12" y2="20"/><path d="M5 4 L19 10 M5 10 L19 4"/><line x1="8" y1="14" x2="16" y2="14"/><path d="M7 20 L17 20 M7 20 L7 23 M17 20 L17 23"/></svg>';
+const SVG_DOT   = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill="currentColor" stroke="none"/></svg>';
+
+const HELI_CODES = ['R22','R44','R66','B06','H500','AS35','EC20','EC30','EC35','EC45','AS50','AS55','B407','B429','B505','HU50','S76','AW13','AW09','CABR','G2CA','H47','UH1','A109','A139','A169','H125','H135','H145','AS350'];
+const GYRO_CODES = ['MT03','MTO3','CLON','CALI','G44','MAGN','ELA','AR1','M16','M24','CAVA','CDUS','MT','MTO'];
+
+const DEFAULT_WATCH = ["G-IROI","G-YROL","G-CIXX","G-CIEW","G-CFAR","G-IBBJ","G-CGZE","G-CGNM","G-CGLY","G-CKLK","G-CITX","G-YPDN","G-YROK","G-CKLE","G-CEOX","G-CGSD","G-FLIS"];
+const KT_TO_MPH = 1.15078;
+const MILE_TO_M = 1609.34;
+
+// ============================================================
+// CONFIG
+// ============================================================
+let CONFIG = { watchList: DEFAULT_WATCH, range: 30, maxAlt: 3000, mapVis: 100, centerLat: null, centerLon: null, watchType: 'GYRO' };
+try {
+    const stored = localStorage.getItem('rufforth_config');
+    if (stored) {
+        CONFIG = { ...CONFIG, ...JSON.parse(stored) };
+        if (CONFIG.centerLat && CONFIG.centerLon) { CURRENT_REF.lat = CONFIG.centerLat; CURRENT_REF.lon = CONFIG.centerLon; }
+    }
+} catch(e) {}
+
+// ============================================================
+// STATE
+// ============================================================
+let refreshMax = 60, refreshCountdown = 60;
+let trafficInterval = null, currentMode = 'ALL';
+let latestTrafficData = [];
+let flightHistory = {};
+let logViewDate = new Date();
+let notifWatchSet = new Set();
+let cachedMetar = null, cachedMetarTime = null;
+let photoCache = {};
+
+// ============================================================
+// CIRCUIT (DO NOT MODIFY)
+// ============================================================
+const RWY_05_THR = [53.95033, -1.17839];
+const RWY_23_THR = [53.95379, -1.17169];
+const exactCircuit = [
+    RWY_23_THR, [53.95651, -1.16604], [53.95581, -1.16096], [53.95040, -1.15640],
+    [53.94758, -1.15750], [53.94093, -1.17146], [53.94110, -1.17689],
+    [53.94310, -1.17954], [53.94839, -1.18104], RWY_05_THR
+];
+
+// ============================================================
+// MAPS
+// ============================================================
+const mapLocal = L.map('map-local', { zoomControl: false, attributionControl: false, dragging: false, touchZoom: false })
+    .setView([CURRENT_REF.lat, CURRENT_REF.lon], 14);
+const mapWide  = L.map('map-wide',  { zoomControl: false, attributionControl: false })
+    .setView([CURRENT_REF.lat, CURRENT_REF.lon], 9);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(mapLocal);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(mapWide);
+
+const trafficLayerLocal = L.layerGroup().addTo(mapLocal);
+const trafficLayerWide  = L.layerGroup().addTo(mapWide);
+const ringsLayerWide    = L.layerGroup().addTo(mapWide);
+const ringsLayerLocal   = L.layerGroup().addTo(mapLocal);
+const staticLayerLocal  = L.layerGroup().addTo(mapLocal);
+
+applyMapVis(CONFIG.mapVis);
+drawStaticElements();
+drawRings();
+
+// ============================================================
+// STATIC ELEMENTS
+// ============================================================
+function drawStaticElements() {
+    staticLayerLocal.clearLayers();
+    const isDefault = (Math.abs(CURRENT_REF.lat - RUFF_EAST_REF.lat) < 0.0001 && Math.abs(CURRENT_REF.lon - RUFF_EAST_REF.lon) < 0.0001);
+
+    if (isDefault) {
+        document.getElementById("label-local").innerText = "RUFF EAST CCT";
+        L.polyline([RWY_05_THR, RWY_23_THR], { color: '#555', weight: 10, opacity: 0.9 }).addTo(staticLayerLocal);
+        L.marker(RWY_05_THR, { icon: L.divIcon({ className: 'rwy-label', html: '05', iconSize: [25, 15] }) }).addTo(staticLayerLocal);
+        L.marker(RWY_23_THR, { icon: L.divIcon({ className: 'rwy-label', html: '23', iconSize: [25, 15] }) }).addTo(staticLayerLocal);
+        const circuitPoly = L.polyline(exactCircuit, { color: '#aaaaaa', weight: 2, dashArray: '5, 10', opacity: 0.6 });
+        circuitPoly.addTo(staticLayerLocal);
+        mapLocal.fitBounds(circuitPoly.getBounds(), { padding: [20, 20], animate: false });
+    } else {
+        document.getElementById("label-local").innerText = "CUSTOM LOCAL";
+        L.marker([CURRENT_REF.lat, CURRENT_REF.lon], { icon: L.divIcon({ className: 'rwy-label', html: '+', iconSize: [20, 20] }) }).addTo(staticLayerLocal);
+        mapLocal.setView([CURRENT_REF.lat, CURRENT_REF.lon], 13);
+    }
+}
+
+function drawRings() {
+    ringsLayerWide.clearLayers(); ringsLayerLocal.clearLayers();
+    [1, 10, 20, 30, 40].forEach(r => {
+        L.circle([CURRENT_REF.lat, CURRENT_REF.lon], { radius: r * MILE_TO_M, color: '#666', weight: 1.5, fill: false, interactive: false }).addTo(ringsLayerWide);
+        if (r === 1) L.circle([CURRENT_REF.lat, CURRENT_REF.lon], { radius: MILE_TO_M, color: '#777', weight: 1.5, fill: false, interactive: false }).addTo(ringsLayerLocal);
+    });
+}
+
+// ============================================================
+// NAV / MODALS
+// ============================================================
+function openNav() { document.getElementById("mySidebar").style.width = "350px"; loadConfig(); }
+function closeNav() { document.getElementById("mySidebar").style.width = "0"; }
+function openModal(id) { document.getElementById(id).style.display = "block"; }
+function closeModal(id) { document.getElementById(id).style.display = "none"; }
+
+window.onclick = e => { ['helpModal','metarModal','logModal'].forEach(id => { if (e.target === document.getElementById(id)) closeModal(id); }); };
+
+// ============================================================
+// CONFIG UI
+// ============================================================
+function loadConfig() {
+    try { const s = localStorage.getItem('rufforth_config'); if (s) CONFIG = { ...CONFIG, ...JSON.parse(s) }; } catch(e) {}
+    document.getElementById("cfg-watchlist").value = CONFIG.watchList.join(", ");
+    document.getElementById("cfg-range").value = CONFIG.range;
+    document.getElementById("cfg-alt").value = CONFIG.maxAlt;
+    document.getElementById("cfg-vis").value = CONFIG.mapVis || 100;
+    document.getElementById("cfg-lat").value = CONFIG.centerLat || "";
+    document.getElementById("cfg-lon").value = CONFIG.centerLon || "";
+    document.getElementById("cfg-watch-type").value = CONFIG.watchType || 'GYRO';
+    updateRangeVal(CONFIG.range); updateAltVal(CONFIG.maxAlt); updateVisVal(CONFIG.mapVis || 100);
+    updateNotifButton();
+}
+
+function updateRangeVal(v) { document.getElementById("val-range").innerText = v + " NM"; }
+function updateAltVal(v)   { document.getElementById("val-alt").innerText   = v + " FT"; }
+function updateVisVal(v)   { document.getElementById("val-vis").innerText   = v + "%"; applyMapVis(v); }
+
+function applyMapVis(val) {
+    document.querySelectorAll('.leaflet-tile-pane').forEach(p => p.style.opacity = val / 100);
+}
+
+function updateMapBounds() {
+    const center = L.latLng(CURRENT_REF.lat, CURRENT_REF.lon);
+    mapWide.fitBounds(center.toBounds(CONFIG.range * MILE_TO_M * 2));
+}
+
+function saveConfig() {
+    const newWatchList = document.getElementById("cfg-watchlist").value.split(',').map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
+    const range = parseInt(document.getElementById("cfg-range").value);
+    const alt   = parseInt(document.getElementById("cfg-alt").value);
+    const vis   = parseInt(document.getElementById("cfg-vis").value);
+    const wType = document.getElementById("cfg-watch-type").value;
+    const inLat = parseFloat(document.getElementById("cfg-lat").value);
+    const inLon = parseFloat(document.getElementById("cfg-lon").value);
+
+    if (!isNaN(inLat) && !isNaN(inLon)) { CONFIG.centerLat = inLat; CONFIG.centerLon = inLon; CURRENT_REF.lat = inLat; CURRENT_REF.lon = inLon; }
+    else { CONFIG.centerLat = null; CONFIG.centerLon = null; CURRENT_REF = { ...RUFF_EAST_REF }; }
+
+    CONFIG.watchList = newWatchList; CONFIG.range = range; CONFIG.maxAlt = alt; CONFIG.mapVis = vis; CONFIG.watchType = wType;
+
+    try { localStorage.setItem('rufforth_config', JSON.stringify(CONFIG)); } catch(e) {}
+    document.getElementById("label-range").innerText = `${range}NM AREA | MAX ${alt}FT`;
+    drawStaticElements(); drawRings(); applyMapVis(vis); updateMapBounds(); fetchWeather(); updateTraffic();
+
+    const btn = document.getElementById("btn-save");
+    btn.innerText = "SETTINGS SAVED!";
+    setTimeout(() => { btn.innerText = "SAVE & APPLY"; closeNav(); }, 800);
+}
+
+function setMode(mode) {
+    currentMode = mode;
+    document.getElementById('btn-ninja').classList.toggle('active', mode === 'NINJA');
+    document.getElementById('btn-all').classList.toggle('active', mode === 'ALL');
+    renderUI();
+}
+
+function setRate(seconds) {
+    refreshMax = seconds; refreshCountdown = seconds;
+    document.querySelectorAll('.group-rate .mode-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(`btn-${seconds}s`).classList.add('active');
+    clearInterval(trafficInterval);
+    trafficInterval = setInterval(updateTraffic, refreshMax * 1000);
+    updateTraffic();
+}
+
+// ============================================================
+// DISTANCE
+// ============================================================
+function calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 3958.8;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+// ============================================================
+// TRAFFIC FETCH (proxy-first with fallbacks)
+// ============================================================
+async function updateTraffic() {
+    refreshCountdown = refreshMax;
+
+    const cleanUrl = `https://api.adsb.lol/v2/lat/${CURRENT_REF.lat}/lon/${CURRENT_REF.lon}/dist/${CONFIG.range}`;
+    const strategies = [
+        { url: `/api/adsb/v2/lat/${CURRENT_REF.lat}/lon/${CURRENT_REF.lon}/dist/${CONFIG.range}`, type: 'direct', name: 'Proxy' },
+        { url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(cleanUrl)}`,          type: 'direct', name: 'CodeTabs' },
+        { url: `https://corsproxy.io/?${encodeURIComponent(cleanUrl)}`,                            type: 'direct', name: 'CorsProxy' },
+        { url: `https://api.allorigins.win/get?url=${encodeURIComponent(cleanUrl)}&random=${Date.now()}`, type: 'json-wrap', name: 'AllOrigins' }
+    ];
+
+    if (window.location.hostname.includes("github.io")) strategies.shift();
+
+    for (const strat of strategies) {
+        try {
+            const res = await fetch(strat.url, { cache: 'no-store' });
+            if (strat.name === 'Proxy') {
+                const ct = res.headers.get("content-type");
+                if (!res.ok || (ct && !ct.includes("json"))) continue;
+            }
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            let data = strat.type === 'json-wrap' ? JSON.parse((await res.json()).contents) : await res.json();
+            if (data && (data.ac || Array.isArray(data.ac))) { processTrafficData(data, strat.name); return; }
+        } catch(e) {}
+    }
+
+    const lbl = document.getElementById('status-lbl');
+    lbl.innerText = "LINK DOWN"; lbl.classList.add('error');
+}
+
+function processTrafficData(data, source) {
+    const lbl = document.getElementById('status-lbl');
+    lbl.classList.remove('error'); lbl.classList.add('flash');
+    setTimeout(() => lbl.classList.remove('flash'), 1000);
+    latestTrafficData = data.ac || [];
+    renderUI();
+}
+
+// ============================================================
+// AIRCRAFT PHOTO (Planespotters)
+// ============================================================
+async function fetchPhoto(reg) {
+    if (!reg || reg === 'UNK') return null;
+    if (photoCache[reg] !== undefined) return photoCache[reg];
+    try {
+        const res = await fetch(`https://api.planespotters.net/pub/photos/reg/${encodeURIComponent(reg)}`);
+        if (!res.ok) { photoCache[reg] = null; return null; }
+        const d = await res.json();
+        if (d.photos && d.photos.length > 0) {
+            const p = d.photos[0];
+            photoCache[reg] = { thumb: p.thumbnail_large?.src || p.thumbnail?.src, link: p.link, photographer: p.photographer };
+        } else {
+            photoCache[reg] = null;
+        }
+    } catch(e) { photoCache[reg] = null; }
+    return photoCache[reg];
+}
+
+// ============================================================
+// POPUP
+// ============================================================
+async function buildPopupContent(ac) {
+    const squawkInfo = getSquawkInfo(ac.squawk, ac.emergency);
+    const rows = [
+        ['TYPE',     ac.type || 'N/A'],
+        ['SQUAWK',   ac.squawk ? `${ac.squawk}${squawkInfo.label ? ' (' + squawkInfo.label + ')' : ''}` : 'N/A'],
+        ['ALT',      (ac.alt || 0) + ' FT'],
+        ['GND SPD',  (ac.spd || 0) + ' MPH'],
+        ['VERT SPD', (ac.vrate || 0) + ' FPM'],
+        ['DIST',     (ac.dist || 0).toFixed(1) + ' NM'],
+        ['CAT',      ac.cat || 'N/A']
+    ];
+    let html = `<div class="pop-header">${ac.reg}</div>`;
+
+    // Photo (async — use placeholder then update)
+    html += `<div class="pop-photo-wrap" id="photo-${ac.reg.replace(/[^A-Z0-9]/g,'')}" style="display:none"></div>`;
+    rows.forEach(r => { html += `<div class="pop-row"><span class="pop-lbl">${r[0]}</span><span class="pop-val" style="color:${squawkInfo.color || 'var(--airbus-cyan)'}">${r[1]}</span></div>`; });
+    return html;
+}
+
+function injectPhoto(reg) {
+    const key = reg.replace(/[^A-Z0-9]/g, '');
+    const wrap = document.getElementById('photo-' + key);
+    if (!wrap) return;
+    fetchPhoto(reg).then(p => {
+        if (!p || !p.thumb) return;
+        wrap.style.display = 'block';
+        wrap.innerHTML = `<img class="pop-photo" src="${p.thumb}" alt="${reg}" onerror="this.parentElement.style.display='none'"><div class="pop-photo-credit">&copy; ${p.photographer}</div>`;
+    });
+}
+
+// ============================================================
+// SQUAWK DECODE
+// ============================================================
+function getSquawkInfo(squawk, emergency) {
+    if (squawk === '7500') return { color: 'var(--airbus-red)',   label: 'HIJACK',       statusClass: 'status-emergency', urgent: true };
+    if (squawk === '7600') return { color: 'var(--airbus-amber)', label: 'RADIO FAIL',   statusClass: 'status-amber',     urgent: false };
+    if (squawk === '7700' || (emergency && emergency !== 'none'))
+                           return { color: 'var(--airbus-red)',   label: 'EMERGENCY',    statusClass: 'status-emergency', urgent: true };
+    return { color: null, label: '', statusClass: null, urgent: false };
+}
+
+// ============================================================
+// CONFLICT DETECTION (1 NM / 500 FT)
+// ============================================================
+function checkConflicts(aircraft) {
+    let conflict = false;
+    for (let i = 0; i < aircraft.length; i++) {
+        for (let j = i + 1; j < aircraft.length; j++) {
+            const a = aircraft[i], b = aircraft[j];
+            if (!a.lat || !b.lat) continue;
+            const dist = calculateDistance(a.lat, a.lon, b.lat, b.lon);
+            const altDiff = Math.abs((a.alt || 0) - (b.alt || 0));
+            if (dist < 1.0 && altDiff < 500) { conflict = true; break; }
+        }
+        if (conflict) break;
+    }
+    document.getElementById('conflict-banner').style.display = conflict ? 'block' : 'none';
+}
+
+// ============================================================
+// FLIGHT LOG
+// ============================================================
+function todayKey() { return 'rufforth_log_' + new Date().toISOString().slice(0, 10); }
+
+function logSighting(reg, alt, spd) {
+    const key = todayKey();
+    let log = [];
+    try { log = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) {}
+    const already = log.some(e => e.reg === reg && Date.now() - e.ts < 300000); // 5 min dedup
+    if (!already) {
+        log.push({ reg, alt, spd, ts: Date.now() });
+        try { localStorage.setItem(key, JSON.stringify(log)); } catch(e) {}
+    }
+}
+
+function openLog() {
+    logViewDate = new Date();
+    renderLog();
+    openModal('logModal');
+}
+
+function logNav(dir) {
+    logViewDate.setDate(logViewDate.getDate() + dir);
+    renderLog();
+}
+
+function renderLog() {
+    const dateStr = logViewDate.toISOString().slice(0, 10);
+    document.getElementById('log-date-label').innerText = dateStr;
+    const key = 'rufforth_log_' + dateStr;
+    let log = [];
+    try { log = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) {}
+    const el = document.getElementById('log-entries');
+    if (log.length === 0) { el.innerHTML = '<div id="log-empty">No sightings recorded for this date.</div>'; return; }
+    const sorted = [...log].sort((a, b) => a.ts - b.ts);
+    el.innerHTML = sorted.map(e => {
+        const t = new Date(e.ts);
+        const hhmm = t.toISOString().slice(11, 16) + 'Z';
+        return `<div class="log-entry"><span class="le-reg">${e.reg}</span><span class="le-alt">${e.alt}ft</span><span class="le-time">${hhmm}</span></div>`;
+    }).join('');
+}
+
+// ============================================================
+// PUSH NOTIFICATIONS
+// ============================================================
+function updateNotifButton() {
+    const btn = document.getElementById('btn-notif');
+    const perm = Notification?.permission;
+    if (perm === 'granted') { btn.innerText = 'NOTIFICATIONS ENABLED'; btn.className = 'btn-notif granted'; }
+    else if (perm === 'denied') { btn.innerText = 'NOTIFICATIONS BLOCKED'; btn.className = 'btn-notif denied'; }
+    else { btn.innerText = 'ENABLE NOTIFICATIONS'; btn.className = 'btn-notif'; }
+}
+
+function requestNotifPermission() {
+    if (!('Notification' in window)) return;
+    Notification.requestPermission().then(() => updateNotifButton());
+}
+
+function maybeNotify(title, body, tag) {
+    if (Notification?.permission !== 'granted') return;
+    try { new Notification(title, { body, tag, renotify: true }); } catch(e) {}
+}
+
+// ============================================================
+// RENDER UI
+// ============================================================
+function renderUI() {
+    const tbody = document.getElementById('traffic-rows');
+    tbody.innerHTML = "";
+    trafficLayerLocal.clearLayers();
+    trafficLayerWide.clearLayers();
+
+    const filtered = latestTrafficData.filter(ac => {
+        const reg = (ac.r || ac.hex || "").toUpperCase();
+        if (currentMode === 'NINJA') return CONFIG.watchList.includes(reg);
+        return (ac.alt_baro === undefined || ac.alt_baro <= CONFIG.maxAlt);
+    });
+
+    const processed = filtered.map(ac => {
+        const reg = (ac.r || ac.hex || "UNK").toUpperCase();
+        const d = calculateDistance(CURRENT_REF.lat, CURRENT_REF.lon, ac.lat, ac.lon);
+        return {
+            reg, alt: ac.alt_baro || 0,
+            spd: Math.round((ac.gs || 0) * KT_TO_MPH),
+            dist: d, vrate: ac.baro_rate || 0,
+            lat: ac.lat, lon: ac.lon,
+            track: ac.track, cat: ac.category,
+            type: ac.t || "", squawk: ac.squawk, emergency: ac.emergency
+        };
+    }).sort((a, b) => a.dist - b.dist);
+
+    checkConflicts(processed);
+
+    processed.forEach(ac => {
+        // Log sighting
+        logSighting(ac.reg, ac.alt, ac.spd);
+
+        const squawkInfo = getSquawkInfo(ac.squawk, ac.emergency);
+
+        let svgHtml = SVG_DOT;
+        let statusClass = 'status-normal';
+        let rowColor = 'var(--airbus-green)';
+        const typeCode = (ac.type || "").toUpperCase();
+
+        if (squawkInfo.statusClass) {
+            statusClass = squawkInfo.statusClass;
+            rowColor = squawkInfo.color;
+            // Notify on urgent squawks
+            if (squawkInfo.urgent && !notifWatchSet.has(ac.reg + ac.squawk)) {
+                notifWatchSet.add(ac.reg + ac.squawk);
+                maybeNotify(`SQUAWK ${ac.squawk} — ${ac.reg}`, squawkInfo.label, ac.reg);
+            }
+        } else if (CONFIG.watchList.includes(ac.reg)) {
+            statusClass = 'status-watch';
+            rowColor = 'var(--airbus-cyan)';
+            // Notify on watched aircraft appearing
+            if (!notifWatchSet.has(ac.reg)) {
+                notifWatchSet.add(ac.reg);
+                maybeNotify(`Watch aircraft spotted: ${ac.reg}`, `${ac.alt}ft at ${ac.dist.toFixed(1)} NM`, ac.reg);
+            }
+        }
+
+        if (CONFIG.watchList.includes(ac.reg)) {
+            svgHtml = CONFIG.watchType === 'GYRO' ? SVG_GYRO : CONFIG.watchType === 'HELI' ? SVG_HELI : SVG_PLANE;
+        } else if (GYRO_CODES.some(t => typeCode.includes(t))) {
+            svgHtml = SVG_GYRO;
+        } else if (ac.cat === "A7" || HELI_CODES.some(t => typeCode.includes(t))) {
+            svgHtml = SVG_HELI;
+        } else {
+            svgHtml = SVG_PLANE;
+        }
+
+        const regDisp = ac.reg.startsWith('G-') ? ac.reg.slice(2) : ac.reg;
+        const iconHtml = `<div class="ac-icon ${statusClass}">${svgHtml}</div><div class="icon-reg-label">${regDisp}</div>`;
+        const icon = L.divIcon({ className: 'custom-icon', html: iconHtml, iconSize: [24, 24], iconAnchor: [12, 12] });
+
+        const altA = ac.vrate > 100 ? "↑" : ac.vrate < -100 ? "↓" : "→";
+        const tr = document.createElement('tr');
+        tr.style.color = rowColor;
+        tr.innerHTML = `<td>${regDisp}</td><td>${ac.alt}${altA}</td><td>${ac.spd}</td><td>${ac.dist.toFixed(1)}</td>`;
+
+        tr.addEventListener('click', async () => {
+            const popHtml = await buildPopupContent(ac);
+            mapWide.flyTo([ac.lat, ac.lon]);
+            const popup = L.popup({ offset: [0, -10] }).setLatLng([ac.lat, ac.lon]).setContent(popHtml).openOn(mapWide);
+            setTimeout(() => injectPhoto(ac.reg), 50);
+        });
+        tbody.appendChild(tr);
+
+        if (ac.track !== undefined) {
+            const rads = ac.track * Math.PI / 180;
+            const len = 0.02;
+            const endLat = ac.lat + len * Math.cos(rads), endLon = ac.lon + len * Math.sin(rads);
+            [trafficLayerLocal, trafficLayerWide].forEach(layer =>
+                L.polyline([[ac.lat, ac.lon], [endLat, endLon]], { color: '#666', weight: 1, opacity: 0.8 }).addTo(layer)
+            );
+        }
+
+        const mkr = L.marker([ac.lat, ac.lon], { icon });
+        mkr.on('click', async () => {
+            const popHtml = await buildPopupContent(ac);
+            mkr.bindPopup(popHtml, { offset: [0, -10] }).openPopup();
+            setTimeout(() => injectPhoto(ac.reg), 50);
+        });
+        mkr.addTo(trafficLayerLocal);
+
+        const mkr2 = L.marker([ac.lat, ac.lon], { icon });
+        mkr2.on('click', async () => {
+            const popHtml = await buildPopupContent(ac);
+            mkr2.bindPopup(popHtml, { offset: [0, -10] }).openPopup();
+            setTimeout(() => injectPhoto(ac.reg), 50);
+        });
+        mkr2.addTo(trafficLayerWide);
+    });
+
+    // Clear notifWatchSet for aircraft no longer present
+    const currentRegs = new Set(processed.map(a => a.reg));
+    notifWatchSet.forEach(k => { if (!currentRegs.has(k.replace(/7[567]00$/, ''))) notifWatchSet.delete(k); });
+}
+
+// ============================================================
+// WARNING HELPERS
+// ============================================================
+function applyWarning(id, level) {
+    const el = document.getElementById(id);
+    el.classList.remove('warn-amber', 'warn-red');
+    if (level === 2) el.classList.add('warn-red');
+    else if (level === 1) el.classList.add('warn-amber');
+}
+
+// ============================================================
+// WEATHER
+// ============================================================
+async function fetchWeather() {
+    try {
+        const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${CURRENT_REF.lat}&longitude=${CURRENT_REF.lon}&current=temperature_2m,dewpoint_2m,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,visibility&wind_speed_unit=kn`);
+        const d = await res.json();
+        const w = d.current;
+        const spd = Math.round(w.wind_speed_10m * KT_TO_MPH);
+        const gst = Math.round(w.wind_gusts_10m * KT_TO_MPH);
+
+        document.getElementById('wind-dir').innerText = `${w.wind_direction_10m}°`;
+        document.getElementById('wind-spd').innerText = `${spd}/${gst}`;
+
+        let windWarn = 0;
+        if (spd > 40 || gst > 40) windWarn = 2;
+        else if (spd > 25 || gst > 25) windWarn = 1;
+        applyWarning('wind-spd', windWarn);
+
+        const rad = (w.wind_direction_10m - 50) * Math.PI / 180;
+        const xw = Math.abs(spd * Math.sin(rad));
+        document.getElementById('x-wind').innerText = xw.toFixed(1);
+        applyWarning('x-wind', xw > 20 ? 2 : xw > 15 ? 1 : 0);
+
+        const visKm = (w.visibility / 1000).toFixed(1);
+        document.getElementById('met-vis').innerText = visKm;
+        applyWarning('met-vis', w.visibility < 5000 ? 2 : w.visibility < 10000 ? 1 : 0);
+
+        document.getElementById('rwy').innerText = Math.abs(w.wind_direction_10m - 50) < 90 ? "05" : "23";
+        const cards = ['N','NE','E','SE','S','SW','W','NW'];
+        document.getElementById('cardinal').innerText = cards[Math.round(w.wind_direction_10m / 45) % 8];
+
+        const t = Math.round(w.temperature_2m), dp = Math.round(w.dewpoint_2m);
+        document.getElementById('met-temp').innerText = t;
+        document.getElementById('met-dp').innerText = dp;
+        const spread = t - dp;
+        applyWarning('met-temp', spread < 2 ? 2 : spread < 3 ? 1 : 0);
+        applyWarning('met-dp',   spread < 2 ? 2 : spread < 3 ? 1 : 0);
+
+        document.getElementById('met-palt').innerText = Math.round(RUFF_ELEVATION_FT + (1013.25 - w.pressure_msl) * 30);
+    } catch(e) {}
+}
+
+// ============================================================
+// METAR MODAL
+// ============================================================
+async function openMetar() {
+    openModal('metarModal');
+    // Use cache if less than 5 minutes old
+    if (cachedMetar && cachedMetarTime && (Date.now() - cachedMetarTime < 300000)) {
+        document.getElementById('metar-raw-text').innerText = cachedMetar;
+        document.getElementById('metar-age').innerText = `Fetched ${Math.round((Date.now() - cachedMetarTime)/60000)} min ago`;
+        return;
+    }
+    document.getElementById('metar-raw-text').innerText = 'Fetching…';
+    document.getElementById('metar-age').innerText = '';
+    try {
+        const res = await fetch('https://aviationweather.gov/api/data/metar?ids=EGNM&format=raw&hours=1');
+        const text = await res.text();
+        cachedMetar = text.trim() || '(No data returned)';
+        cachedMetarTime = Date.now();
+        document.getElementById('metar-raw-text').innerText = cachedMetar;
+        document.getElementById('metar-age').innerText = 'Just fetched';
+    } catch(e) {
+        document.getElementById('metar-raw-text').innerText = 'Failed to fetch METAR. Check network.';
+    }
+}
+
+// ============================================================
+// CLOCK
+// ============================================================
+setInterval(() => {
+    document.getElementById('zulu-clock').innerText = new Date().toISOString().slice(11, 19) + "Z";
+    if (refreshCountdown > 0) refreshCountdown--;
+    document.getElementById('refresh-timer').innerText = refreshCountdown + "s";
+}, 1000);
+
+// ============================================================
+// PWA
+// ============================================================
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+}
+
+// ============================================================
+// INIT
+// ============================================================
+loadConfig();
+updateMapBounds();
+document.getElementById("label-range").innerText = `${CONFIG.range}NM AREA | MAX ${CONFIG.maxAlt}FT`;
+drawRings();
+updateNotifButton();
+
+trafficInterval = setInterval(updateTraffic, 60000);
+setInterval(fetchWeather, 300000);
+updateTraffic();
+fetchWeather();
+</script>
+</body>
+</html>
