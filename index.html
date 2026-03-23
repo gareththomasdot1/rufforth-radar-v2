@@ -669,7 +669,11 @@ function updateSrcBadges() {
         const el = document.getElementById(id);
         el.className = 'src-badge src-' + SRC_STATUS[key];
     });
-    document.getElementById('src-pi').style.display = CONFIG.piEnabled ? '' : 'none';
+    const piEl = document.getElementById('src-pi');
+    piEl.style.display = CONFIG.piEnabled ? '' : 'none';
+    piEl.title = SRC_STATUS.piMsg
+        ? `Local Pi (dump1090) — ${SRC_STATUS.piMsg}`
+        : 'Local Pi (dump1090)';
 }
 
 // ============================================================
@@ -679,6 +683,14 @@ const PI_PATHS = ['/data/aircraft.json', '/dump1090/data/aircraft.json', '/skyaw
 
 async function fetchFromPi() {
     const base = CONFIG.piUrl;
+
+    // Browser blocks HTTP requests from an HTTPS page (mixed content)
+    if (window.location.protocol === 'https:' && base.startsWith('http:')) {
+        SRC_STATUS.pi = 'err';
+        SRC_STATUS.piMsg = 'HTTPS→HTTP blocked. Access app via http:// or enable HTTPS on Pi.';
+        return null;
+    }
+
     for (const path of PI_PATHS) {
         try {
             const res = await fetch(base + path, { cache: 'no-store', signal: AbortSignal.timeout(3000) });
@@ -686,8 +698,11 @@ async function fetchFromPi() {
             const d = await res.json();
             const raw = d.aircraft || d.ac || [];
             SRC_STATUS.pi = 'ok';
+            SRC_STATUS.piMsg = '';
             return normalisePiData(raw);
-        } catch(e) {}
+        } catch(e) {
+            SRC_STATUS.piMsg = e.message;
+        }
     }
     SRC_STATUS.pi = 'err';
     return null;
